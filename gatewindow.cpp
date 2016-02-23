@@ -4,8 +4,7 @@
 #include <QMessageBox>
 
 
-static const int TotalBytes = 50 * 1024 * 1024;
-static const int PayloadSize = 64 * 1024; // 64 KB
+static QByteArray syncCmd("\xAC\x01",2); //Magic begin here, will be more, stay tuned ...
 
 GateWindow::GateWindow(QWidget *parent) :
     QMainWindow(parent),
@@ -13,11 +12,14 @@ GateWindow::GateWindow(QWidget *parent) :
 {
     ui->setupUi(this);
 
-    connect(ui->startButton, SIGNAL(clicked()), this, SLOT(startFinsServer()));
+    connect(ui->startButton, SIGNAL(clicked()), this, SLOT(startToolbusClient()));
     connect(ui->quitButton, SIGNAL(clicked()), this, SLOT(close()));
 
     connect(&tcpServer, SIGNAL(newConnection()),this, SLOT(acceptConnection()));
     connect(&serialPort, SIGNAL(readyRead()), this, SLOT(serialDataRead()));
+
+    syncToolbusTimer.setInterval( 500);
+    connect(&syncToolbusTimer, SIGNAL(timeout()), this, SLOT( initToolbusConnection()));
 
     connect(ui->testButton, SIGNAL(clicked()), this, SLOT(testSerialConnection()));
 
@@ -33,7 +35,7 @@ GateWindow::~GateWindow()
     delete ui;
 }
 
-void GateWindow::startFinsServer()
+void GateWindow::startToolbusClient()
 {
 #ifndef QT_NO_CURSOR
     QApplication::setOverrideCursor(Qt::WaitCursor);
@@ -52,7 +54,12 @@ void GateWindow::startFinsServer()
             return;
     }
     serialPort.setBaudRate(QSerialPort::Baud115200);
+    syncToolbusTimer.start();
+    initToolbusConnection();
+}
 
+void GateWindow::startFinsServer()
+{
     while (!tcpServer.isListening() && !tcpServer.listen(QHostAddress::LocalHost, 9600)) {
         QMessageBox::StandardButton ret = QMessageBox::critical(this,
                                         tr("FINS Server"),
@@ -68,19 +75,20 @@ void GateWindow::startFinsServer()
 #ifndef QT_NO_CURSOR
         QApplication::restoreOverrideCursor();
 #endif
+
+}
+
+void GateWindow::initToolbusConnection()
+{
+    ui->serverStatusLabel->setText(tr("Tollbus SYNC in progress"));
+    serialPort.write( syncCmd);
 }
 
 void GateWindow::testSerialConnection()
 {
-    serialPort.write(QByteArray("\xAB\x00\x14\x80\x00\x03\x00\x00\x00\x00\x00\x00\x0D\x01\x01\x82\x00\x01\x00\x00\x03\x01\xD7",23));
-    serialPort.waitForBytesWritten( 500);
-    serialPort.waitForReadyRead(500);
-    QByteArray buff;
-    buff = serialPort.readAll();
-    while( serialPort.waitForReadyRead(50)) {
-        buff += serialPort.readAll();
-    }
-    qDebug() << buff;
+    //serialPort.write(QByteArray("\xAB\x00\x14\x80\x00\x03\x00\x00\x00\x00\x00\x00\x0D\x01\x01\x82\x00\x01\x00\x00\x03\x01\xD7",23));
+    serialPort.write(QByteArray("\xab\x00\x0e\x80\x00\x02\x00\x00\x00\x00\x00\x00\x00\x05\x01\x01\x41",17)); //identify controller
+    //serialPort.write(QByteArray("\xAC\x01",2));
 }
 
 void GateWindow::acceptConnection()
@@ -175,7 +183,7 @@ void GateWindow::processRxFinsFrame( QByteArray frame)
         serialPort.write( serialDataSend);
     } else if (frame.length() == 20) {
         //special FINS command
-        //Be warned ! We do a bit off Magic here !!!
+        //Be warned ! We do a bit off dirty Magic here !!!
         QByteArray tcpDataSend( "\x46\x49\x4e\x53\x00\x00\x00\x10\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\xf0\x00\x00\x00\x0a",24);
         // End of magis section ... (see Section 7-4 FINS/TCP Method)
         if( tcpServerConnection) tcpServerConnection->write( tcpDataSend);
@@ -191,6 +199,20 @@ void GateWindow::serialDataRead()
     serialBuff.append( serialPort.readAll());
 
     while( serialBuff.length()) {
+        //check sync condition
+        if( syncToolbusTimer.isActive() || serialBuff.startsWith(0xAC) ) {
+            int syncIdx = serialBuff.indexOf( syncCmd);
+            if( syncIdx>=0) {
+                serialBuff.remove(0,syncIdx+2);
+                ui->serverStatusLabel->setText(tr("Toolbus in Sync"));
+                syncToolbusTimer.stop();
+                if (!tcpServer.isListening()) startFinsServer();
+                continue;
+            } else {
+                return;
+            }
+        }
+
         //Check frame structure (Header, length)
         int frameBeginIdx = serialBuff.indexOf( 0xAB);
         if( frameBeginIdx<0) {
@@ -202,6 +224,7 @@ void GateWindow::serialDataRead()
             qWarning() << "Discard begin of Toolbus data" << serialBuff.toHex();
             serialBuff.remove(0,frameBeginIdx);
         }
+
         if(serialBuff.length() < 5) return;
 
         quint16 fLength  = (quint8)(serialBuff.at(1))*(256)

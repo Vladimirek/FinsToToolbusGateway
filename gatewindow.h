@@ -6,6 +6,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTime>
+#include <QTimer>
 
 namespace Ui {
 class GateWindow;
@@ -20,7 +21,7 @@ public:
     ~GateWindow();
 
 private slots:
-    void startFinsServer();
+    void startToolbusClient();
     void acceptConnection();
     void tcpDataRead();
     void displayError(QAbstractSocket::SocketError socketError);
@@ -29,6 +30,8 @@ private slots:
     void serialDataRead();
     void processRxFinsFrame(QByteArray frame);
     void processRxToolbusFrame(QByteArray frame);
+    void initToolbusConnection();
+    void startFinsServer();
 private:
     Ui::GateWindow *ui;
 
@@ -41,6 +44,8 @@ private:
     QByteArray serialBuff;
 
     QTime startTime;
+    QTimer syncToolbusTimer;
+
 };
 
 #endif // GATEWINDOW_H
