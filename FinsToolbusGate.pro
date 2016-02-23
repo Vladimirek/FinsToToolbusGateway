@@ -18,3 +18,6 @@ SOURCES += main.cpp\
 HEADERS  += gatewindow.h
 
 FORMS    += gatewindow.ui
+
+DISTFILES += \
+    LICENCE
