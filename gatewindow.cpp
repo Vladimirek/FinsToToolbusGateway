@@ -1,19 +1,46 @@
 #include "gatewindow.h"
 #include "ui_gatewindow.h"
 
+#include <QFileInfo>
 #include <QMessageBox>
+#include <QSettings>
+#include <QSystemTrayIcon>
 
+#define PROGRAM_VERSION "Ver 1.0.1     <a href='http://www.agilor.sk'>www.agilor.sk</a>"
 
 static QByteArray syncCmd("\xAC\x01",2); //Magic begin here, will be more, stay tuned ...
+
+QString GateWindow::getAppConfigFileName()
+{
+    QString appDir=QFileInfo( QCoreApplication::applicationFilePath() ).absolutePath();
+    QString inipath = appDir+"/FinsToolbusGate.ini";
+    return inipath;
+}
 
 GateWindow::GateWindow(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::GateWindow)
 {
     ui->setupUi(this);
+    QSystemTrayIcon *trayIcon;
+    trayIcon = new QSystemTrayIcon(QIcon(":AgilorIcon"));
+    trayIcon->show();
 
+    //ui->statusBar->showMessage(PROGRAM_VERSION);
+    QLabel *l;
+    l=new QLabel(PROGRAM_VERSION);
+    l->setOpenExternalLinks( true); l->setSizePolicy(QSizePolicy::Minimum,QSizePolicy::Minimum);
+    ui->statusBar->addPermanentWidget( l);
+    ui->statusBar->addPermanentWidget(new QLabel(""),2);
+
+
+    connect(trayIcon, SIGNAL(activated(QSystemTrayIcon::ActivationReason)),
+                this, SLOT(iconActivated(QSystemTrayIcon::ActivationReason)));
+
+    connect(ui->actionExit, SIGNAL(triggered()),this, SLOT(close()));
     connect(ui->startButton, SIGNAL(clicked()), this, SLOT(startToolbusClient()));
     connect(ui->quitButton, SIGNAL(clicked()), this, SLOT(close()));
+    connect(ui->autoStartupServer, SIGNAL(stateChanged(int)), this, SLOT(setAutoStartupServer(int)));
 
     connect(&tcpServer, SIGNAL(newConnection()),this, SLOT(acceptConnection()));
     connect(&serialPort, SIGNAL(readyRead()), this, SLOT(serialDataRead()));
@@ -21,18 +48,86 @@ GateWindow::GateWindow(QWidget *parent) :
     syncToolbusTimer.setInterval( 500);
     connect(&syncToolbusTimer, SIGNAL(timeout()), this, SLOT( initToolbusConnection()));
 
-    connect(ui->testButton, SIGNAL(clicked()), this, SLOT(testSerialConnection()));
+    //connect(ui->testButton, SIGNAL(clicked()), this, SLOT(testSerialConnection()));
 
     ui->comPort->setText("/dev/ttyUSB0");
 
     tcpServerConnection = NULL;
-}
 
+    //Load Config
+    QSettings gateSettings( getAppConfigFileName(), QSettings::IniFormat);
+    if( !gateSettings.contains("Application/RunServerOnStart")) {
+        //invalid settings file - write default one
+        qWarning() << "Create Default Part Types INI file";
+        gateSettings.beginGroup("Application");
+        gateSettings.setValue("RunServerOnStart", false);
+        gateSettings.setValue("SerialCom", "/dev/ttyUSB0");
+        gateSettings.endGroup();
+        gateSettings.sync();
+    }
+
+    bool ros = gateSettings.value("Application/RunServerOnStart", false).toBool();
+    ui->autoStartupServer->setChecked( ros);
+    if( ros) {
+        ui->serverStatusLabel->setText(tr("Autostart Server"));
+        QTimer::singleShot( 1000, this, SLOT(startToolbusClient()));
+    }
+    ui->comPort->setText(gateSettings.value("Application/SerialCom", "/dev/ttyUSB0").toString());
+}
 
 
 GateWindow::~GateWindow()
 {
     delete ui;
+    ui=NULL;
+}
+
+void GateWindow::changeEvent(QEvent* e)
+{
+    switch (e->type())
+    {
+        case QEvent::LanguageChange:
+            this->ui->retranslateUi(this);
+            break;
+        case QEvent::WindowStateChange:
+            {
+                if (this->windowState() & Qt::WindowMinimized)
+                {
+                    //trayIcon->show();
+                    QTimer::singleShot(250, this, SLOT(hide()));
+                }
+
+                break;
+            }
+        default:
+            break;
+    }
+
+    QMainWindow::changeEvent(e);
+}
+
+void GateWindow::iconActivated(QSystemTrayIcon::ActivationReason reason)
+{
+    qDebug() << "------" << reason;
+    switch (reason) {
+    case QSystemTrayIcon::Trigger:
+    case QSystemTrayIcon::DoubleClick:
+        this->show();
+        this->raise();
+        break;
+    case QSystemTrayIcon::MiddleClick:
+        break;
+    default:
+        ;
+    }
+}
+
+void GateWindow::setAutoStartupServer( int state)
+{
+    QSettings gateSettings( getAppConfigFileName(), QSettings::IniFormat);
+    gateSettings.setValue("Application/RunServerOnStart", state?true:false);
+    gateSettings.setValue("Application/SerialCom",ui->comPort->text());
+    gateSettings.sync();
 }
 
 void GateWindow::startToolbusClient()
@@ -112,7 +207,7 @@ void GateWindow::disconnected()
     if( tcpServerConnection) {
         tcpServerConnection->disconnect();
         tcpServerConnection=NULL;
-        ui->serverStatusLabel->setText(tr("Disconnected"));
+        if( ui) ui->serverStatusLabel->setText(tr("Disconnected"));
     }
 }
 

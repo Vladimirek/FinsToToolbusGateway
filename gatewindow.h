@@ -7,6 +7,8 @@
 #include <QTcpSocket>
 #include <QTime>
 #include <QTimer>
+#include <QSettings>
+#include <QSystemTrayIcon>
 
 namespace Ui {
 class GateWindow;
@@ -20,6 +22,8 @@ public:
     explicit GateWindow(QWidget *parent = 0);
     ~GateWindow();
 
+protected slots:
+    void changeEvent(QEvent *e);
 private slots:
     void startToolbusClient();
     void acceptConnection();
@@ -32,6 +36,8 @@ private slots:
     void processRxToolbusFrame(QByteArray frame);
     void initToolbusConnection();
     void startFinsServer();
+    void setAutoStartupServer(int state);
+    void iconActivated(QSystemTrayIcon::ActivationReason reason);
 private:
     Ui::GateWindow *ui;
 
@@ -46,6 +52,7 @@ private:
     QTime startTime;
     QTimer syncToolbusTimer;
 
+    QString getAppConfigFileName();
 };
 
 #endif // GATEWINDOW_H

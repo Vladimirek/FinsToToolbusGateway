@@ -21,3 +21,6 @@ FORMS    += gatewindow.ui
 
 DISTFILES += \
     LICENCE
+
+RESOURCES += \
+    finstoolbusgate.qrc

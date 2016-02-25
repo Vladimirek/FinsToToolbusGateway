@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="AgilorIcon">AgilorIcon.png</file>
+        <file>AgilorLogo.png</file>
+    </qresource>
+</RCC>
