@@ -149,6 +149,11 @@ void GateWindow::startToolbusClient()
             return;
     }
     serialPort.setBaudRate(QSerialPort::Baud115200);
+    serialPort.setDataBits(QSerialPort::Data8);
+    serialPort.setStopBits(QSerialPort::OneStop);
+    serialPort.setFlowControl(QSerialPort::NoFlowControl);
+    serialPort.setDataTerminalReady(true);
+    serialPort.setRequestToSend(true);
     syncToolbusTimer.start();
     initToolbusConnection();
 }
