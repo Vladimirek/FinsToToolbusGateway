@@ -40,7 +40,7 @@ private slots:
     void iconActivated(QSystemTrayIcon::ActivationReason reason);
 private:
     Ui::GateWindow *ui;
-
+    QSystemTrayIcon *trayIcon;
     QTcpServer tcpServer;
     QTcpSocket *tcpServerConnection;
 

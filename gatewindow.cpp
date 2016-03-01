@@ -6,7 +6,7 @@
 #include <QSettings>
 #include <QSystemTrayIcon>
 
-#define PROGRAM_VERSION "Ver 1.0.1     <a href='http://www.agilor.sk'>www.agilor.sk</a>"
+#define PROGRAM_VERSION "Ver 1.0.2     <a href='http://www.agilor.sk'>www.agilor.sk</a>"
 
 static QByteArray syncCmd("\xAC\x01",2); //Magic begin here, will be more, stay tuned ...
 
@@ -21,8 +21,7 @@ GateWindow::GateWindow(QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::GateWindow)
 {
-    ui->setupUi(this);
-    QSystemTrayIcon *trayIcon;
+    ui->setupUi(this);    
     trayIcon = new QSystemTrayIcon(QIcon(":AgilorIcon"));
     trayIcon->show();
 
@@ -40,7 +39,6 @@ GateWindow::GateWindow(QWidget *parent) :
     connect(ui->actionExit, SIGNAL(triggered()),this, SLOT(close()));
     connect(ui->startButton, SIGNAL(clicked()), this, SLOT(startToolbusClient()));
     connect(ui->quitButton, SIGNAL(clicked()), this, SLOT(close()));
-    connect(ui->autoStartupServer, SIGNAL(stateChanged(int)), this, SLOT(setAutoStartupServer(int)));
 
     connect(&tcpServer, SIGNAL(newConnection()),this, SLOT(acceptConnection()));
     connect(&serialPort, SIGNAL(readyRead()), this, SLOT(serialDataRead()));
@@ -66,18 +64,22 @@ GateWindow::GateWindow(QWidget *parent) :
         gateSettings.sync();
     }
 
+    ui->comPort->setText(gateSettings.value("Application/SerialCom", "/dev/ttyUSB0").toString());
+
     bool ros = gateSettings.value("Application/RunServerOnStart", false).toBool();
     ui->autoStartupServer->setChecked( ros);
     if( ros) {
         ui->serverStatusLabel->setText(tr("Autostart Server"));
         QTimer::singleShot( 1000, this, SLOT(startToolbusClient()));
     }
-    ui->comPort->setText(gateSettings.value("Application/SerialCom", "/dev/ttyUSB0").toString());
+
+    connect(ui->autoStartupServer, SIGNAL(stateChanged(int)), this, SLOT(setAutoStartupServer(int)));
 }
 
 
 GateWindow::~GateWindow()
 {
+    trayIcon->hide();
     delete ui;
     ui=NULL;
 }
@@ -132,6 +134,7 @@ void GateWindow::setAutoStartupServer( int state)
 
 void GateWindow::startToolbusClient()
 {
+    ui->startButton->setEnabled( false);
 #ifndef QT_NO_CURSOR
     QApplication::setOverrideCursor(Qt::WaitCursor);
 #endif
@@ -146,6 +149,7 @@ void GateWindow::startToolbusClient()
                                         QMessageBox::Retry
                                         | QMessageBox::Cancel);
         if (ret == QMessageBox::Cancel)
+            ui->startButton->setEnabled( true);
             return;
     }
     serialPort.setBaudRate(QSerialPort::Baud115200);
@@ -213,6 +217,8 @@ void GateWindow::disconnected()
         tcpServerConnection->disconnect();
         tcpServerConnection=NULL;
         if( ui) ui->serverStatusLabel->setText(tr("Disconnected"));
+        tcpBuff.clear();
+        serialBuff.clear();
     }
 }
 
@@ -294,9 +300,14 @@ void GateWindow::processRxFinsFrame( QByteArray frame)
 
 void GateWindow::serialDataRead()
 {
-    //qDebug() << "ToolbusDataRead";
+    //qDebug() << "ToolbusDataRead";    
 
     serialBuff.append( serialPort.readAll());
+
+    if( !tcpServerConnection && !syncToolbusTimer.isActive()) {
+        serialBuff.clear(); //no listener
+        return;
+    }
 
     while( serialBuff.length()) {
         //check sync condition
